@@ -148,6 +148,19 @@ PollingScheduler.timer (10s reconcile net)     ┘        (coalesced)
 
 Per-app AXObserver notifications are the primary discovery trigger; the
 10s timer only backstops missed events and observer-refusing apps.
+A window the walk could not read — its app failed the window-list read,
+or its frame read failed — is reported on
+`AccessibilityManager.unreadableWindowIDs` while the window server still
+shows it. Discovery holds such a window in every store: not gone, not
+hidden, not returned. The tile pass keeps its leaf and writes no frame to
+it, and the poll that reads it again retiles its key once. The walk sets
+a 0.25 s messaging timeout on the elements it reads, so a stalled app
+costs a quarter second per poll and is held rather than judged. A missing
+window its app still lists, neither minimized nor hidden with the app —
+another Space, a native full-screen excursion, a stale snapshot — is held
+the same way for five seconds (`WindowDiscoveryService.listedHoldSpan`)
+and hidden as before once it passes; a tile pass in between keeps its
+leaf, so the excursion leaves the layout untouched.
 While the session is locked, the displays sleep, or the user session is
 switched out, `computeChanges` treats a missing window as no evidence and
 skips the cycle, and `pollWindowChanges` stops there;
