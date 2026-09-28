@@ -2274,7 +2274,7 @@ class TilingEngine {
             // ordinary pass would simply leave it out.
             let key = TilingKey(workspace: workspace, screen: screen)
             let published = Set(trees[key]?.allWindows.map(\.windowID) ?? [])
-            let judged = windows.filter {
+            var judged = windows.filter {
                 !$0.isFloating && (published.contains($0.windowID) || bypass[$0.windowID] != nil)
             }
             if !fitWindows(judged, onWorkspace: workspace, screen: screen) {
