@@ -1462,13 +1462,17 @@ class TilingEngine {
         }
         let positionFirstIDs = positionFirstWindowIDs(originalFrames, layouts: firstLayouts,
                                                       destination: rect)
+        // the first pass gets the captured originals: a layout every window
+        // already stands on is accepted from them, without a write
         let first = !positionFirstIDs.isEmpty
             ? reconcile(poller.applyWorkspaceReveal(firstLayouts,
                                                     positionFirstWindowIDs: positionFirstIDs,
                                                     usableFrame: rect, gap: gapSize,
-                                                    generation: generation),
+                                                    generation: generation,
+                                                    originalFrames: originalFrames),
                         generation: generation)
-            : applyLayout(firstLayouts, usableFrame: rect, generation: generation, poller: poller)
+            : applyLayout(firstLayouts, usableFrame: rect, generation: generation, poller: poller,
+                          originalFrames: originalFrames)
         if case .accepted = first.verdict {
             return .accepted(actualFrames: first.actualFrames,
                              progress: FrameSizingProgressReport(candidate: first.progress))
@@ -1703,9 +1707,11 @@ class TilingEngine {
     // BSPTree.adjustForMinSizes.
     private func applyLayout(_ layouts: [(HyprWindow, CGRect)], usableFrame: CGRect,
                              generation: UInt64,
-                             poller: FrameReadbackPoller) -> FrameReadbackPoller.Result {
+                             poller: FrameReadbackPoller,
+                             originalFrames: [CGWindowID: CGRect]? = nil) -> FrameReadbackPoller.Result {
         reconcile(poller.applyLayout(layouts, usableFrame: usableFrame,
-                                     gap: gapSize, generation: generation),
+                                     gap: gapSize, generation: generation,
+                                     originalFrames: originalFrames),
                   generation: generation)
     }
 
