@@ -1988,6 +1988,22 @@ class TilingEngine {
     // tree shape), smart-inserts new windows in a stable order
     // (auto-floating those that don't fit), and resets split ratios.
     // pure with respect to AX — only mutates the tree and engine state.
+    /// The order a batch is inserted in: incumbents first, then left to
+    /// right by current frame, then by id. The retry's fit check and its
+    /// choice of the newcomer to give up on use the same order, so they
+    /// judge what the pass will do.
+    private func insertionOrder(_ a: HyprWindow, _ b: HyprWindow,
+                                frames: [CGWindowID: CGRect], workspace: Int) -> Bool {
+        let aIncumbent = admittedWindowIDs[workspace]?.contains(a.windowID) ?? false
+        let bIncumbent = admittedWindowIDs[workspace]?.contains(b.windowID) ?? false
+        if aIncumbent != bIncumbent { return aIncumbent }
+        let fa = frames[a.windowID] ?? .zero
+        let fb = frames[b.windowID] ?? .zero
+        if fa.origin.x != fb.origin.x { return fa.origin.x < fb.origin.x }
+        if fa.origin.y != fb.origin.y { return fa.origin.y < fb.origin.y }
+        return a.windowID < b.windowID
+    }
+
     private func updateTreeMembership(_ windows: [HyprWindow],
                                       onWorkspace workspace: Int,
                                       screen: NSScreen, candidate: BSPTree? = nil) -> TileMembershipResult {
@@ -2034,16 +2050,7 @@ class TilingEngine {
         // made multi-window inserts land differently every time.
         if toInsert.count > 1 {
             let frames = Dictionary(uniqueKeysWithValues: toInsert.map { ($0.windowID, $0.frame ?? .zero) })
-            toInsert.sort { a, b in
-                let aIncumbent = admittedWindowIDs[workspace]?.contains(a.windowID) ?? false
-                let bIncumbent = admittedWindowIDs[workspace]?.contains(b.windowID) ?? false
-                if aIncumbent != bIncumbent { return aIncumbent }
-                let fa = frames[a.windowID] ?? .zero
-                let fb = frames[b.windowID] ?? .zero
-                if fa.origin.x != fb.origin.x { return fa.origin.x < fb.origin.x }
-                if fa.origin.y != fb.origin.y { return fa.origin.y < fb.origin.y }
-                return a.windowID < b.windowID
-            }
+            toInsert.sort { insertionOrder($0, $1, frames: frames, workspace: workspace) }
         }
 
         // members that left for a poll or two go back where they were. two
@@ -2277,6 +2284,11 @@ class TilingEngine {
             var judged = windows.filter {
                 !$0.isFloating && (published.contains($0.windowID) || bypass[$0.windowID] != nil)
             }
+            // in the order the pass inserts, so the check and the choice of
+            // the newcomer to give up on judge what the pass will do, and
+            // not the order the window server listed the windows in
+            let judgedFrames = Dictionary(uniqueKeysWithValues: judged.map { ($0.windowID, $0.frame ?? .zero) })
+            judged.sort { insertionOrder($0, $1, frames: judgedFrames, workspace: workspace) }
             if !fitWindows(judged, onWorkspace: workspace, screen: screen) {
                 if let dropped = newcomersToRefuse(judged, newcomers: Set(bypass.keys).subtracting(published),
                                                    onWorkspace: workspace, screen: screen) {
