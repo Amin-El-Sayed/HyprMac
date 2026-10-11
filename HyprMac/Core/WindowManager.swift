@@ -3403,7 +3403,9 @@ private extension WindowManager {
         slots.removeValue(forKey: snapshot.draggedID)
         let tiles = onSourceTiles
             ? " tiles=[\(TiledDragTargetResolver.trace(pointer: pointer, slots: slots))]" : ""
-        hyprLog(.notice, .tiling, "tiled drag release: dragged=\(snapshot.draggedID) "
+        // runs on every click of a tiled window. the mode and settle lines
+        // carry the decision; this geometry is for the trace tier
+        hyprLog(.debug, .tiling, "tiled drag release: dragged=\(snapshot.draggedID) "
                 + String(format: "point=cg(%g,%g) ", Double(pointer.x), Double(pointer.y))
                 + "source=ws\(snapshot.context.workspace) on \(describe(source)) "
                 + "sourceTiles=\(snapshot.context.usableFrame) onSourceTiles=\(onSourceTiles) "

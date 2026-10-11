@@ -930,8 +930,12 @@ not publish unverified frames or change admission recovery.
 
 ### Tiled drag decisions and drops across monitors
 
-Every tiled release logs its decision at `.notice` under `category: tiling`,
-in this order. Points and frames are global CG coordinates (top-left origin).
+Every tiled release logs its decision under `category: tiling`, in this
+order. Points and frames are global CG coordinates (top-left origin). A plain
+click is a release that never moved, so its lines are trace tier (`.debug`):
+the `release` line always, and the `mode` and `settle read` lines when the
+mode is `none` or the gesture is `unmoved`. Turn on `HyprMacVerboseLogging`
+(see Log tiers) to see them in a Release build. Everything else is `.notice`.
 
 - `tiled drag release: dragged=<id> point=cg(<x>,<y>) source=ws<N> on
   '<name>' display=<n> full=<rect> sourceTiles=<rect> onSourceTiles=<bool>

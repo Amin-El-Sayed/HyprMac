@@ -470,7 +470,8 @@ struct TiledDragTransaction {
         // how far each grabbed edge's opposite moved; a resize holds them all
         let drift = "[" + snapshot.oppositeEdgeDrift(to: frame)
             .map { "\($0.edge):\(Self.traced($0.drift))" }.joined(separator: ",") + "]"
-        hyprLog(.notice, .tiling, "tiled drag settle read: dragged=\(snapshot.draggedID) "
+        // every plain click lands here unmoved. that goes to the trace tier
+        hyprLog(unchanged ? .debug : .notice, .tiling, "tiled drag settle read: dragged=\(snapshot.draggedID) "
                 + "original=\(original.map(Self.traced) ?? "none") read=\(Self.traced(frame)) "
                 + "dw=\(original.map { Self.traced(frame.width - $0.width) } ?? "?") "
                 + "dh=\(original.map { Self.traced(frame.height - $0.height) } ?? "?") "
