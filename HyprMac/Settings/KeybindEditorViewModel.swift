@@ -59,6 +59,13 @@ final class KeybindEditorViewModel: ObservableObject {
 
     var canSave: Bool { recordedKeyCode != 0 && commandValidationError == nil }
 
+    /// another bind already on the recorded chord. saving would put two binds
+    /// on one chord, which the keys list cannot tell apart.
+    func conflict(in binds: [Keybind], editing original: Keybind?) -> Keybind? {
+        guard recordedKeyCode != 0 else { return nil }
+        return binds.conflict(with: buildKeybind(), editing: original)
+    }
+
     func load(_ bind: Keybind?) {
         guard let bind else { return }
         recordedKeyCode = bind.keyCode
