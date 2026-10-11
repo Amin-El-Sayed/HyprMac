@@ -2152,11 +2152,77 @@ class TilingEngine {
                 !$0.isFloating && (published.contains($0.windowID) || bypass[$0.windowID] != nil)
             }
             if !fitWindows(judged, onWorkspace: workspace, screen: screen) {
+                if let dropped = newcomersToRefuse(judged, newcomers: Set(bypass.keys).subtracting(published),
+                                                   onWorkspace: workspace, screen: screen) {
+                    return admitAllBut(dropped, of: windows, onWorkspace: workspace, screen: screen,
+                                       alsoRestoringWithin: restorationReach)
+                }
                 return structuralRefusal(Set(bypass.keys), workspace: workspace, screen: screen)
             }
         }
-        return tileWindows(windows, onWorkspace: workspace, screen: screen,
+        let result = tileWindows(windows, onWorkspace: workspace, screen: screen,
+                                 alsoRestoringWithin: restorationReach)
+        // the attempt may have just learned floors that rule the whole set
+        // out. at startup every window is a newcomer, and floating them all
+        // because two of them cannot share the screen floats the workspace.
+        guard refusingImpossibleArrangements, let failure = result.failure,
+              !failure.isTimeout, failure != .superseded,
+              !result.failedInsertedIDs.isEmpty else { return result }
+        let key = TilingKey(workspace: workspace, screen: screen)
+        let published = Set(trees[key]?.allWindows.map(\.windowID) ?? [])
+        let judged = windows.filter {
+            !$0.isFloating && (published.contains($0.windowID) || bypass[$0.windowID] != nil)
+        }
+        guard !fitWindows(judged, onWorkspace: workspace, screen: screen),
+              let dropped = newcomersToRefuse(judged, newcomers: Set(bypass.keys).subtracting(published),
+                                              onWorkspace: workspace, screen: screen)
+        else { return result }
+        return admitAllBut(dropped, of: windows, onWorkspace: workspace, screen: screen,
                            alsoRestoringWithin: restorationReach)
+    }
+
+    /// The fewest newcomers to leave out so the rest fit beside the
+    /// incumbents on the known floors. Drops the newcomer whose removal makes
+    /// the rest fit, else the one with the biggest floor, and repeats. nil
+    /// when no newcomer would be left to tile.
+    private func newcomersToRefuse(_ judged: [HyprWindow], newcomers: Set<CGWindowID>,
+                                   onWorkspace workspace: Int, screen: NSScreen) -> Set<CGWindowID>? {
+        var kept = judged
+        var dropped: Set<CGWindowID> = []
+        while !fitWindows(kept, onWorkspace: workspace, screen: screen) {
+            let candidates = kept.filter { newcomers.contains($0.windowID) }.sorted { lhs, rhs in
+                let left = minimumSize(for: lhs), right = minimumSize(for: rhs)
+                let leftArea = left.width * left.height, rightArea = right.width * right.height
+                return leftArea != rightArea ? leftArea > rightArea : lhs.windowID > rhs.windowID
+            }
+            guard let first = candidates.first else { return nil }
+            let drop = candidates.first { candidate in
+                fitWindows(kept.filter { $0.windowID != candidate.windowID },
+                           onWorkspace: workspace, screen: screen)
+            } ?? first
+            kept.removeAll { $0.windowID == drop.windowID }
+            dropped.insert(drop.windowID)
+        }
+        guard kept.contains(where: { newcomers.contains($0.windowID) }) else { return nil }
+        return dropped
+    }
+
+    /// Tile everything but `dropped`, and report `dropped` refused so the
+    /// recovery floats only those.
+    private func admitAllBut(_ dropped: Set<CGWindowID>, of windows: [HyprWindow],
+                             onWorkspace workspace: Int, screen: NSScreen,
+                             alsoRestoringWithin restorationReach: CGRect?) -> AdmissionResult {
+        hyprLog(.notice, .tiling, "admission retry tiles what fits: refused=["
+                + dropped.sorted().map(String.init).joined(separator: ", ") + "] ws\(workspace)"
+                + " — the known minima do not fit them beside the rest")
+        let result = tileWindows(windows.filter { !dropped.contains($0.windowID) },
+                                 onWorkspace: workspace, screen: screen,
+                                 alsoRestoringWithin: restorationReach)
+        return AdmissionResult(workspace: result.workspace, screen: result.screen,
+                               generation: result.generation,
+                               insertedIDs: result.insertedIDs, publishedIDs: result.publishedIDs,
+                               failure: result.failure, restoredIDs: result.restoredIDs,
+                               refusedIDs: result.refusedIDs.union(dropped))
     }
 
     /// The result of a retry that never ran: the known minima cannot be
