@@ -417,12 +417,13 @@ more when the app does not answer in time (step 3).
    938 pt floor, a 574 pt floor, the gap and the padding do not fit in
    1496 pt of usable width — it resolves there, without a single setter, and
    logs `admission retry refused pre-write`. When only some of the newcomers
-   are the problem, the retry gives them up one at a time — the one whose
-   tightest axis takes the largest share of the usable frame first — until
-   what is left fits, tiles the rest in the same pass, and reports the
-   dropped ones as `refusedIDs` (`admission retry narrowed pre-write`). Eight
-   windows opening on a laptop screen used to float as a set because two of
-   them could not share it with anyone. Before acting the recovery
+   are the problem, the retry drops the fewest the known floors rule out —
+   the one whose removal makes the rest fit, else the one with the biggest
+   floor, and again — tiles the rest in the same pass, and reports the
+   dropped ones as `refusedIDs` (`admission retry tiles what fits`); it does
+   the same after an attempt that learned the floors itself. Eight windows
+   opening on a laptop screen used to float as a set because two of them
+   could not share it with anyone. Before acting the recovery
    re-checks the assignment, the workspace's home screen, whether the
    workspace is visible, whether the app is running, whether the window
    still exists and can be read, and whether the user has floated it.
@@ -448,9 +449,9 @@ more when the app does not answer in time (step 3).
    dropped pre-write floats as `noFittingSlot`, its own reason, not the
    verdict of the pass that tiled the rest; a pending window a fallback
    retile or a newer layout tiled meanwhile is resolved, never floated
-   off its tile. The pre-write check and the choice of the newcomer to
-   give up on take the windows in the order the pass inserts them, so
-   the verdict does not change with the window server's z-order.
+   off its tile. The pre-write check takes the windows in the order the
+   pass inserts them, so its verdict does not change with the window
+   server's z-order.
 
    The recovery then asks the engine to drop the key's unverified
    mark, and the engine decides: `clearUnverifiedGeometry` drops it only if

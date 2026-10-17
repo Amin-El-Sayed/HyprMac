@@ -287,11 +287,12 @@ position settle cut short: wid=<id> phase=candidate after=<n>ms samples=<n> last
 
 The admission recovery's narrowing lines, all `[notice] [tiling]`:
 
-- `admission retry narrowed pre-write: dropped=[…] ws<N> — their known
-  minima do not fit beside the rest; tiling […]` — the retry gave up on
-  the newcomers whose floors cannot fit, largest share of the frame
-  first, and ran the pass for the rest. The dropped ones come back
-  refused and float without another attempt.
+- `admission retry tiles what fits: refused=[…] ws<N> — the known minima
+  do not fit them beside the rest` — the retry dropped the fewest
+  newcomers the known floors rule out and ran the pass for the rest,
+  before writing or after an attempt that learned the floors. The dropped
+  ones come back refused and float without another attempt, as
+  `noFittingSlot`.
 - `admission recovery narrowed: floating […] ws<N> cause=<failure> —
   retrying […] without them (round <n> of 3)` — the retry was refused on
   some of its newcomers: those float, the rest get the pass again inside
@@ -945,8 +946,12 @@ not publish unverified frames or change admission recovery.
 
 ### Tiled drag decisions and drops across monitors
 
-Every tiled release logs its decision at `.notice` under `category: tiling`,
-in this order. Points and frames are global CG coordinates (top-left origin).
+Every tiled release logs its decision under `category: tiling`, in this
+order. Points and frames are global CG coordinates (top-left origin). A plain
+click is a release that never moved, so its lines are trace tier (`.debug`):
+the `release` line always, and the `mode` and `settle read` lines when the
+mode is `none` or the gesture is `unmoved`. Turn on `HyprMacVerboseLogging`
+(see Log tiers) to see them in a Release build. Everything else is `.notice`.
 
 - `tiled drag release: dragged=<id> point=cg(<x>,<y>) source=ws<N> on
   '<name>' display=<n> full=<rect> sourceTiles=<rect> onSourceTiles=<bool>

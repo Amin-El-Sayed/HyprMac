@@ -26,25 +26,15 @@ enum WhatsNewFeatures {
     // update this before each release — see docs/release.md
     static let current: [WhatsNewFeature] = [
         WhatsNewFeature(
-            icon: "pin",
-            title: "Pin Apps to Workspaces",
-            description: "Settings → General → Pin apps to workspaces sends an app's new windows to the workspace you choose, and takes you there with them."
-        ),
-        WhatsNewFeature(
-            icon: "rectangle.on.rectangle",
-            title: "Drag Between Monitors",
-            description: "Drop a tiled window on another monitor and it tiles where you let go. A highlight shows where it will land before you drop."
-        ),
-        WhatsNewFeature(
-            icon: "rectangle.3.group",
-            title: "Retile All on Hypr+R",
-            description: "Hypr+R retiles every workspace and moves pinned apps back to their workspaces."
-        ),
-        WhatsNewFeature(
-            icon: "macwindow.on.rectangle",
-            title: "Never Tile Means Never",
-            description: "Apps in Never tile stay floating. Hypr+T on one says so instead of tiling it, and a pinned one still floats on its workspace.",
+            icon: "square.grid.2x2",
+            title: "Fewer Floating Windows at Launch",
+            description: "When a workspace can't fit every window, HyprMac tiles the ones that fit and floats only the rest, instead of floating them all.",
             tint: .magenta
+        ),
+        WhatsNewFeature(
+            icon: "keyboard",
+            title: "No Duplicate Shortcuts",
+            description: "The Keys tab won't save a shortcut another keybind already uses, and tells you which one has it."
         ),
     ]
 }

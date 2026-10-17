@@ -445,7 +445,8 @@ final class TiledDragSessionCoordinator {
             } else {
                 mode = nil
             }
-            hyprLog(.notice, .tiling, "tiled drag mode: dragged=\(snapshot.draggedID) "
+            // no mode is every plain click, so it stays in the trace tier
+            hyprLog(mode == nil ? .debug : .notice, .tiling, "tiled drag mode: dragged=\(snapshot.draggedID) "
                     + "swap=\(release.swapRequested) mode=\(Self.describe(mode))")
             let outcome = self.apply(snapshot, mode)
             guard self.pressEpoch == epoch else { return }
