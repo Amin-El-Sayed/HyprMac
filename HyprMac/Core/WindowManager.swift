@@ -3145,6 +3145,10 @@ class WindowManager {
         hyprLog(.notice, .hotkey, "system interruption (\(notification.name.rawValue)) — resetting hotkey state")
         lastSystemInterruptionAt = Date()
         hotkeyManager.resetTrackingAfterTapInterruption()
+        // the Caps Lock remap is shared with every other HyprMac that ran
+        // since; one that quit took it with it, and the Hypr key was a
+        // plain Caps Lock until the next launch
+        KeyRemapper.reassertHyprKey(UserConfig.shared.hyprKey)
         // also clear stuck dock flag and menu-tracking flag — sleep dialogs
         // and screen lock can leave either stale.
         mouseTracker.dockIsActive = false
