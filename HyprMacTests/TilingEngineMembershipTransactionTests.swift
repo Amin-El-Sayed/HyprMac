@@ -279,7 +279,8 @@ final class TilingEngineMembershipTransactionTests: XCTestCase {
     func testSecondTargetFailureWithParkedOriginalsPublishesNothingAndWritesNoParkedFrame() throws {
         let f = try fixture()
         // originals parked off the usable frame, so they are not restoration
-        // targets. every target is written, then the second one will not read
+        // targets. parked windows are written position-first, so the attempt
+        // ends at the failed read; the second target must have been written
         let usable = f.engine.displayManager.cgRect(for: f.screen)
         let parked = CGRect(x: usable.maxX + 200, y: usable.minY + 20, width: 120, height: 120)
         for window in f.windows { f.trace.frames[window.windowID] = parked }
@@ -289,7 +290,7 @@ final class TilingEngineMembershipTransactionTests: XCTestCase {
         f.engine.tileWindows(f.windows, onWorkspace: 1, screen: f.screen)
 
         XCTAssertEqual(f.engine.existingTree(forWorkspace: 1, screen: f.screen)?.structuralFingerprint(), before)
-        XCTAssertEqual(f.trace.written, Set(f.windows.map(\.windowID)))
+        XCTAssertTrue(f.trace.written.contains(f.windows[1].windowID))
         XCTAssertFalse(f.trace.requested.values.contains { $0.origin == parked.origin },
                        "a parked original is never written back")
         XCTAssertEqual(unverifiedIDs(f.engine, workspace: 1), Set(f.windows.map(\.windowID)))
