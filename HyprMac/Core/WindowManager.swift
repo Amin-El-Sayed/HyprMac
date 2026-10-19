@@ -284,6 +284,7 @@ class WindowManager {
         }
         self.workspaceOrchestrator.onDidSwitch = { [weak self] _, _ in
             self?.updateMenuBarState()
+            self?.refreshWorkspaceOverview()
         }
         self.workspaceOrchestrator.excludedBundleIDs = { [weak self] in
             Set(self?.config.excludedBundleIDs ?? [])
@@ -2574,6 +2575,7 @@ class WindowManager {
         }
         refreshFloatingBorders(windows: allWindows)
         updateMenuBarState()
+        refreshWorkspaceOverview(windows: allWindows)
 
         // keep focus border tracking window position (retile, resize, etc.)
         if let tid = focusBorder.trackedWindowID, let w = stateCache.cachedWindows[tid], let frame = w.frame {
@@ -2710,9 +2712,11 @@ class WindowManager {
         }
     }
 
-    private func workspaceOverviewSnapshots() -> (workspaces: [WorkspaceSnapshot], scratchpad: [WorkspaceWindowSnapshot]) {
+    /// Read-only. `windows` is a snapshot the caller already walked, so a
+    /// refresh from a poll or a retile doesn't walk AX a second time.
+    private func workspaceOverviewSnapshots(windows: [HyprWindow]? = nil) -> (workspaces: [WorkspaceSnapshot], scratchpad: [WorkspaceWindowSnapshot]) {
         let active = Set(activeWorkspaces())
-        let currentWindows = Dictionary(accessibility.getAllWindows().map { ($0.windowID, $0) },
+        let currentWindows = Dictionary((windows ?? accessibility.getAllWindows()).map { ($0.windowID, $0) },
                                         uniquingKeysWith: { first, _ in first })
         let currentWindowIDs = Set(currentWindows.keys)
         let knownOrCachedWindowIDs = stateCache.knownWindowIDs.union(stateCache.cachedWindows.keys)
@@ -2767,6 +2771,12 @@ class WindowManager {
             reservedHidden: reservedHidden)
         let scratchWindows = scratchIDs.map { snapshot($0, screenFrame: scratchFrame) }
         return (workspaces, scratchWindows)
+    }
+
+    /// Live overview: new windows, closes, moves and retiles show up while
+    /// Hypr+O is open. No-op (and no AX walk) while it is closed.
+    private func refreshWorkspaceOverview(windows: [HyprWindow]? = nil) {
+        workspaceOverview.refreshIfOpen { workspaceOverviewSnapshots(windows: windows) }
     }
 
     /// Workspaces that hold at least one live floating window.
@@ -2832,6 +2842,7 @@ class WindowManager {
         if !changes.needsRetile { applyTiledDrift(allWindows) }
         repairParkedWindows(allWindows)
         reconcileTiledDragFeedback(with: retileResults, allWindows: allWindows)
+        refreshWorkspaceOverview(windows: allWindows)
         // a guarded cycle diffed nothing, so it can't have seen the close —
         // don't spend a recheck attempt on it, and don't let the slower
         // destroy re-poll coalesce away the prompt one.
