@@ -416,6 +416,7 @@ private struct WorkspaceOverviewCardFramesKey: PreferenceKey {
 }
 
 private struct WorkspaceCard: View {
+    @ObservedObject private var config = UserConfig.shared
     @Environment(\.colorScheme) private var colorScheme
     private var palette: OverlayPalette { OverlayPalette(scheme: colorScheme) }
     let workspace: WorkspaceSnapshot
@@ -439,7 +440,7 @@ private struct WorkspaceCard: View {
                         let frame = window.normalizedFrame
                         Button { selectWindow(workspace.id, window.id) } label: {
                             ZStack {
-                                RoundedRectangle(cornerRadius: 4).fill(window.isFloating ? Color.hyprMagenta.opacity(0.45) : Color.hyprCyan.opacity(0.22))
+                                RoundedRectangle(cornerRadius: 4).fill(window.isFloating ? config.resolvedFloatingColor.opacity(0.45) : Color.hyprCyan.opacity(0.22))
                                 WorkspaceAppIcon(bundleID: window.bundleID).frame(width: 20, height: 20)
                             }
                         }
