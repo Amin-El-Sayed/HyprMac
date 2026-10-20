@@ -1149,6 +1149,33 @@ lock that outlasted the 4-second hold and the three mass-gone skips marked
 every window hidden, and the unlock rebuilt each tree in reading order with
 default ratios.
 
+### A window vanished for a poll and came back somewhere else
+
+Two kinds of missing window are held rather than judged: kept known, on
+their workspace and in their tree, with no frame written to them, so the
+neighbours keep their slots. All `[notice] [discovery]`:
+
+```
+holding 1 unreadable window(s) in place: [21915] — on screen, but their app did not answer AX
+unreadable window(s) readable again: [21915]
+holding 2 window(s) off the screen in place: [15173, 21915] — their app still lists them (another Space, full screen, or a stale snapshot); hidden if not back within 5s
+off-screen hold ended: [15173, 21915]
+```
+
+The first is an app that failed the walk's window-list or frame read
+while the window server still shows the window (`AX window-list read
+FAILED for <bundle>` precedes it). The second is a window the window
+server no longer shows on screen while its app still lists it, neither
+minimized nor hidden with the app: a native full-screen app on the
+display, a Space switched away, or a stale snapshot. That hold lasts five
+seconds, and a poll is scheduled for when it runs out; a window still
+missing then is `window hidden` as before, with its slot reserved.
+`FLAP: … returned <n>ms after vanishing` on the return is the diagnostic
+for a window that was not held and came back within five seconds; with
+both holds in place it should be rare. Every tile pass logs
+`retile: ws<N> holds […] — leaves kept, no frame written` for the members
+it kept out of the pass.
+
 ### "Why isn't this window managed?" (filtered windows, Quick Look)
 
 Discovery keeps only what `WindowAdmissionFilter` admits: standard windows

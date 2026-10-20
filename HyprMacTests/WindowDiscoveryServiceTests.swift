@@ -517,6 +517,28 @@ final class WindowDiscoveryServiceTests: XCTestCase {
         XCTAssertTrue(svc.heldWindowIDs.isEmpty)
     }
 
+    /// the hold ends on its own; the caller polls then, not at the next
+    /// ten-second reconcile
+    func testAHoldSaysWhenItEnds() {
+        let access = StubAccessibility()
+        access.stateAnswer = .present
+        let (svc, cache, _) = makeService(accessibility: access)
+        var clock = Date(timeIntervalSinceReferenceDate: 1000)
+        svc.now = { clock }
+        cache.knownWindowIDs = [10, 12]
+        cache.windowOwners = [10: 8200, 12: 8200]
+        let other = makeWindow(id: 10, pid: 8200)
+        XCTAssertNil(svc.secondsUntilAHoldEnds)
+
+        _ = compute(svc, snapshot: [other], runningPIDs: [8200])
+        XCTAssertEqual(svc.secondsUntilAHoldEnds!, WindowDiscoveryService.listedHoldSpan, accuracy: 0.001)
+        clock += 3
+        XCTAssertEqual(svc.secondsUntilAHoldEnds!, WindowDiscoveryService.listedHoldSpan - 3, accuracy: 0.001)
+        clock += 3
+        _ = compute(svc, snapshot: [other], runningPIDs: [8200])
+        XCTAssertNil(svc.secondsUntilAHoldEnds, "hidden now; nothing to wait for")
+    }
+
     func testAListedWindowMinimizedDuringTheHoldIsHiddenAtOnce() {
         let access = StubAccessibility()
         access.stateAnswer = .present

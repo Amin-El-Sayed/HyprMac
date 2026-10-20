@@ -210,6 +210,13 @@ final class WindowDiscoveryService {
     /// pass between polls keeps their leaves and writes them nothing.
     var heldWindowIDs: Set<CGWindowID> { heldUnreadableIDs.union(heldListedIDs) }
 
+    /// How long until the earliest off-screen hold runs out, so the caller
+    /// can poll then rather than at the next reconcile. nil without one.
+    var secondsUntilAHoldEnds: TimeInterval? {
+        guard let earliest = listedSince.values.min() else { return nil }
+        return max(0.1, Self.listedHoldSpan - now().timeIntervalSince(earliest))
+    }
+
     private func noteHeld(unreadable: Set<CGWindowID>, listed: Set<CGWindowID>) {
         if unreadable != heldUnreadableIDs {
             let began = unreadable.subtracting(heldUnreadableIDs)

@@ -41,9 +41,8 @@ final class TilingEngineMembershipTransactionTests: XCTestCase {
         let slots = engine.intendedTileRects()
         trace.written = []
 
-        let result = engine.withHeldWindows([953]) {
-            engine.tileWindows(Array(windows.prefix(2)), onWorkspace: 1, screen: screen)
-        }
+        engine.heldWindowIDsSource = { [953] }
+        let result = engine.tileWindows(Array(windows.prefix(2)), onWorkspace: 1, screen: screen)
 
         XCTAssertTrue(result.published)
         XCTAssertEqual(engine.existingTree(forWorkspace: 1, screen: screen)?.structuralFingerprint(), shape)
@@ -776,10 +775,9 @@ final class TilingEngineMembershipTransactionTests: XCTestCase {
         XCTAssertEqual(engine.projectedAdmissionOutlook([tenant, newcomer], incoming: [newcomer.windowID],
                                                         onWorkspace: 1, screen: screen), .fits,
                        "without the hold the absent member's slot is free")
-        let withHold = engine.withHeldWindows([held.windowID]) {
-            engine.projectedAdmissionOutlook([tenant, newcomer], incoming: [newcomer.windowID],
-                                             onWorkspace: 1, screen: screen)
-        }
+        engine.heldWindowIDsSource = { [held.windowID] }
+        let withHold = engine.projectedAdmissionOutlook([tenant, newcomer], incoming: [newcomer.windowID],
+                                                        onWorkspace: 1, screen: screen)
         XCTAssertNotEqual(withHold, .fits, "the held member keeps its leaf, and its floor leaves no room")
     }
 

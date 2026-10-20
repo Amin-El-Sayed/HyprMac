@@ -2006,6 +2006,9 @@ class TilingEngine {
     @discardableResult
     func tileWindows(_ windows: [HyprWindow], onWorkspace workspace: Int, screen: NSScreen,
                      alsoRestoringWithin extraReach: CGRect? = nil) -> AdmissionResult {
+        let previousHold = heldWindowIDs
+        heldWindowIDs = passHold(for: windows)
+        defer { heldWindowIDs = previousHold }
         let generation = beginLayoutGeneration()
         pendingSwapRevert = nil
         let live = trees[TilingKey(workspace: workspace, screen: screen)]
@@ -2054,7 +2057,10 @@ class TilingEngine {
         // tree without a frame from it. remember them for the retile that
         // follows the poll that reads them again
         let heldHere = heldWindowIDs.intersection(t.allWindows.map(\.windowID))
-        if !heldHere.isEmpty { heldByKey[key, default: []].formUnion(heldHere) }
+        if !heldHere.isEmpty {
+            heldByKey[key, default: []].formUnion(heldHere)
+            hyprLog(.notice, .tiling, "retile: ws\(workspace) holds \(heldHere.sorted()) — leaves kept, no frame written")
+        }
 
         // clean up empty trees for this workspace on other screens
         for (key, t) in trees where key.workspace == workspace {
@@ -2144,6 +2150,9 @@ class TilingEngine {
                         refusingImpossibleArrangements: Bool = false,
                         keepingUnverifiedOnTimeout: Bool = false,
                         restorationReach: CGRect? = nil) -> AdmissionResult {
+        let previousHold = heldWindowIDs
+        heldWindowIDs = passHold(for: windows)
+        defer { heldWindowIDs = previousHold }
         let previous = minimaBypass
         let previousTopologyRecovery = admissionTopologyRecovery
         let previousKeep = keepsTimedOutAdmission
@@ -2270,6 +2279,9 @@ class TilingEngine {
     /// - Returns: the windows that didn't fit (stay floating members).
     @discardableResult
     func tileScratchpad(_ windows: [HyprWindow], screen: NSScreen, in rect: CGRect) -> [HyprWindow] {
+        let previousHold = heldWindowIDs
+        heldWindowIDs = passHold(for: windows)
+        defer { heldWindowIDs = previousHold }
         let generation = beginLayoutGeneration()
         pendingSwapRevert = nil
         primeMinimumSizes(windows)
@@ -2357,6 +2369,9 @@ class TilingEngine {
     /// - Returns: `[(window, frame)]` pairs in tree iteration order. Empty
     ///   array if the tree ends up empty.
     func prepareTileLayout(_ windows: [HyprWindow], onWorkspace workspace: Int, screen: NSScreen) -> [(HyprWindow, CGRect)] {
+        let previousHold = heldWindowIDs
+        heldWindowIDs = passHold(for: windows)
+        defer { heldWindowIDs = previousHold }
         _ = beginLayoutGeneration()
         pendingSwapRevert = nil
         let m = updateTreeMembership(windows, onWorkspace: workspace, screen: screen)
@@ -2898,24 +2913,30 @@ class TilingEngine {
         withMinimaBypass(revalidationBypass(incoming: incoming, key: key), body)
     }
 
-    /// Members of the trees a pass may not touch: their app did not answer
-    /// the discovery walk, so the caller could not hand them over, but the
-    /// window server still shows them. They keep their leaves, so the other
-    /// members keep their slots, and no frame is written to them.
+    /// The windows the walk could not hand over although the window server
+    /// still shows them: the ones their app did not answer for, and the
+    /// ones off the screen their app still lists. Wired by `WindowManager`
+    /// to discovery and the walk. Every pass asks it, so no caller of the
+    /// engine can forget the hold: a pass that ran over a fresh walk
+    /// without it dropped the held member from its tree, grew the
+    /// neighbour over its slot, and put it back somewhere else when it
+    /// read again.
+    var heldWindowIDsSource: () -> Set<CGWindowID> = { [] }
+
+    /// The held members of the pass under way: named by the source and
+    /// absent from the list the pass was given. One the list carries is
+    /// back, and not held. They keep their leaves, so the other members
+    /// keep their slots, and no frame is written to them. Empty outside a
+    /// pass.
     private var heldWindowIDs: Set<CGWindowID> = []
+
+    private func passHold(for windows: [HyprWindow]) -> Set<CGWindowID> {
+        heldWindowIDsSource().subtracting(windows.map(\.windowID))
+    }
 
     /// Held members per key, so the poll that reads them again can ask for
     /// the retile that gives them their frames.
     private var heldByKey: [TilingKey: Set<CGWindowID>] = [:]
-
-    /// Run `body` with `ids` held out of every membership update and every
-    /// write inside it.
-    func withHeldWindows<T>(_ ids: Set<CGWindowID>, _ body: () -> T) -> T {
-        let previous = heldWindowIDs
-        heldWindowIDs = ids
-        defer { heldWindowIDs = previous }
-        return body()
-    }
 
     /// The held members among `readable`, dropped from the record. The
     /// caller retiles their keys; a retile that already ran this cycle wrote
@@ -2996,6 +3017,9 @@ class TilingEngine {
     func revalidateAdmission(_ windows: [HyprWindow], incoming: Set<CGWindowID>,
                              onWorkspace workspace: Int, screen: NSScreen,
                              restorationReach: CGRect? = nil) -> AdmissionResult {
+        let previousHold = heldWindowIDs
+        heldWindowIDs = passHold(for: windows)
+        defer { heldWindowIDs = previousHold }
         let key = TilingKey(workspace: workspace, screen: screen)
         let bypass = revalidationBypass(incoming: incoming, key: key)
         hyprLog(.notice, .tiling, "minima revalidation attempt: ws\(workspace)"
@@ -3211,7 +3235,10 @@ class TilingEngine {
     /// memory as it stands, never on a bypass belonging to whatever pass it
     /// was called from.
     func canFitWindows(_ windows: [HyprWindow], onWorkspace workspace: Int, screen: NSScreen) -> Bool {
-        withoutMinimaBypass { fitWindows(windows, onWorkspace: workspace, screen: screen) }
+        let previousHold = heldWindowIDs
+        heldWindowIDs = passHold(for: windows)
+        defer { heldWindowIDs = previousHold }
+        return withoutMinimaBypass { fitWindows(windows, onWorkspace: workspace, screen: screen) }
     }
 
     /// `admissionOutlook` for a whole projected membership. `windows` is
@@ -3221,6 +3248,9 @@ class TilingEngine {
     /// verdict carries no refusal facts; a batch only needs the verdict.
     func projectedAdmissionOutlook(_ windows: [HyprWindow], incoming: Set<CGWindowID>,
                                    onWorkspace workspace: Int, screen: NSScreen) -> AdmissionOutlook {
+        let previousHold = heldWindowIDs
+        heldWindowIDs = passHold(for: windows)
+        defer { heldWindowIDs = previousHold }
         if canFitWindows(windows, onWorkspace: workspace, screen: screen) { return .fits }
         let key = TilingKey(workspace: workspace, screen: screen)
         let bypassed = withRevalidationBypass(incoming: incoming, key: key) {

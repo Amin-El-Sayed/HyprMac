@@ -2049,13 +2049,10 @@ class WindowManager {
             }
 
             hyprLog(.debug, .lifecycle, "retile: workspace=\(workspace) screen=\(workspaceManager.screenID(for: screen)), \(workspaceWindows.count) windows")
-            let held = heldMembers(onWorkspace: workspace, absentFrom: workspaceWindows)
             // a workspace being shown is where an explicit move to a hidden
             // destination finally gets its one attempt. the marker is spent
             // on this pass whatever it says.
-            results.append(tilingEngine.withHeldWindows(held) {
-                admissionPass.run(workspaceWindows, onWorkspace: workspace, screen: screen)
-            })
+            results.append(admissionPass.run(workspaceWindows, onWorkspace: workspace, screen: screen))
         }
 
         updatePositionCache(windows: allWindows)
@@ -2839,6 +2836,12 @@ class WindowManager {
         // re-apply or a recovery attempt from it would lay the trees out
         // without the windows it is missing
         if changes.heldForInterruption { return }
+        // an off-screen hold ends on its own; the poll that hides the
+        // window, or finds it back, is asked for then, not at the next
+        // ten-second reconcile
+        if let wait = discovery.secondsUntilAHoldEnds {
+            pollingScheduler.schedule(after: wait + 0.05)
+        }
         let retileResults = actionDispatcher.applyChanges(changes, allWindows: allWindows)
         // a member a tile pass held out because its app did not answer gets
         // its frame once the app does. a retile this poll already wrote it
@@ -2920,28 +2923,6 @@ class WindowManager {
             || (stateCache.cachedWindows[id]?.isFloating ?? false)
     }
 
-    /// Members of `workspace`'s trees a pass may not touch: their app did
-    /// not answer the walk, or the window server showed them off the
-    /// screen while their app still lists them, and `windows`, the walk
-    /// the pass runs over, does not have them back. They keep their leaves,
-    /// so every other slot stays, and no frame goes out to them; the poll
-    /// retiles the key once they are back. Every pass over a fresh walk
-    /// asks: the retile, the recovery's retry and its fallback retile, and
-    /// the drift re-apply. One that did not dropped the held member from
-    /// its tree, grew the neighbour over its slot, and put it back
-    /// somewhere else when it read again.
-    private func heldMembers(onWorkspace workspace: Int, absentFrom windows: [HyprWindow]) -> Set<CGWindowID> {
-        let held = accessibility.unreadableWindowIDs.union(discovery.heldWindowIDs)
-            .intersection(workspaceManager.windowIDs(onWorkspace: workspace))
-            .subtracting(windows.map(\.windowID))
-            .subtracting(stateCache.floatingWindowIDs)
-            .subtracting(stateCache.hiddenWindowIDs)
-        if !held.isEmpty {
-            hyprLog(.notice, .lifecycle, "retile: ws\(workspace) holds \(held.sorted()) — leaves kept, no frame written")
-        }
-        return held
-    }
-
     /// One ordinary verified layout pass for a key whose windows drifted.
     /// Nothing special: the same path a retile takes, down to the
     /// bookkeeping, so a refusal rolls back, marks the key, and hands
@@ -2954,10 +2935,7 @@ class WindowManager {
         }
         let assigned = workspaceManager.windowIDs(onWorkspace: workspace)
         let windows = allWindows.filter { assigned.contains($0.windowID) }
-        let held = heldMembers(onWorkspace: workspace, absentFrom: windows)
-        _ = tilingEngine.withHeldWindows(held) {
-            admissionPass.run(windows, onWorkspace: workspace, screen: screen)
-        }
+        admissionPass.run(windows, onWorkspace: workspace, screen: screen)
         updatePositionCache(windows: allWindows)
     }
 
@@ -3854,6 +3832,15 @@ private extension WindowManager {
     /// It has no handle on workspace assignment, so the fallback cannot turn
     /// into `routeUnfittedWindow` by another name.
     private func wireAdmissionRecovery() {
+        // the hold, owned by the engine: every pass asks, so a move onto a
+        // workspace that holds an unreadable window, a scratchpad show and
+        // the recovery's passes keep the held leaf like the retile does
+        tilingEngine.heldWindowIDsSource = { [weak self] in
+            guard let self else { return [] }
+            return self.accessibility.unreadableWindowIDs.union(self.discovery.heldWindowIDs)
+                .subtracting(self.stateCache.floatingWindowIDs)
+                .subtracting(self.stateCache.hiddenWindowIDs)
+        }
         tilingEngine.pendingRecoverySource = { [weak self] in
             self?.admissionRecovery.pendingWindowIDs ?? []
         }
@@ -3892,14 +3879,11 @@ private extension WindowManager {
             }
             let assigned = self.workspaceManager.windowIDs(onWorkspace: workspace)
             let windows = allWindows.filter { assigned.contains($0.windowID) }
-            let held = self.heldMembers(onWorkspace: workspace, absentFrom: windows)
-            let result = self.tilingEngine.withHeldWindows(held) {
-                self.tilingEngine.retryAdmission(
-                    windows, onWorkspace: workspace, screen: screen,
-                    bypassingMinimaBefore: bypass,
-                    refusingImpossibleArrangements: true,
-                    keepingUnverifiedOnTimeout: keepOnTimeout)
-            }
+            let result = self.tilingEngine.retryAdmission(
+                windows, onWorkspace: workspace, screen: screen,
+                bypassingMinimaBefore: bypass,
+                refusingImpossibleArrangements: true,
+                keepingUnverifiedOnTimeout: keepOnTimeout)
             self.updatePositionCache(windows: allWindows)
             return AdmissionRecovery.AttemptResult(
                 placed: result.publishedIDs.intersection(bypass.keys),
@@ -3925,10 +3909,8 @@ private extension WindowManager {
             let windows = allWindows.filter { assigned.contains($0.windowID) }
             // an ordinary pass, no bypass: the newcomer is floating now, so
             // this is the incumbents asking for their slots back.
-            let held = self.heldMembers(onWorkspace: workspace, absentFrom: windows)
-            let result = self.tilingEngine.withHeldWindows(held) {
-                self.tilingEngine.tileWindows(windows, onWorkspace: workspace, screen: screen)
-            }
+            let result = self.tilingEngine.tileWindows(windows, onWorkspace: workspace,
+                                                       screen: screen)
             self.updatePositionCache(windows: allWindows)
             return Set(windows.filter { !$0.isFloating
                                         && !result.publishedIDs.contains($0.windowID) }

@@ -160,7 +160,13 @@ window its app still lists, neither minimized nor hidden with the app —
 another Space, a native full-screen excursion, a stale snapshot — is held
 the same way for five seconds (`WindowDiscoveryService.listedHoldSpan`)
 and hidden as before once it passes; a tile pass in between keeps its
-leaf, so the excursion leaves the layout untouched.
+leaf, so the excursion leaves the layout untouched, and the poll that
+ends the hold is asked for when it runs out. `TilingEngine` owns the
+hold: `heldWindowIDsSource` names the windows the walk could not hand
+over, every pass asks it and holds the members its list does not carry,
+so a retile, a move onto the workspace, a scratchpad show, the recovery's
+passes and the drift re-apply all keep the held leaf, and no caller can
+forget it.
 While the session is locked, the displays sleep, or the user session is
 switched out, `computeChanges` treats a missing window as no evidence and
 skips the cycle, and `pollWindowChanges` stops there;
