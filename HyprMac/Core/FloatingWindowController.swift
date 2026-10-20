@@ -153,6 +153,21 @@ struct RaiseBehindThrottle {
     /// the front on every raise stops blinking every fifteen seconds
     private var loops: [Pair: Int] = [:]
     var loopCooldownCap: TimeInterval = 600
+    /// when a pair last looped. a pair quiet for `loopDecay` starts its
+    /// escalation over, so a floater that looped once an hour ago is not
+    /// cooled for ten minutes on its next click
+    private var loopSeen: [Pair: TimeInterval] = [:]
+    var loopDecay: TimeInterval = 300
+
+    /// The pair's loop count after this loop, with the escalation reset
+    /// when the last loop is further back than `loopDecay`.
+    private mutating func nextLoopCount(_ pair: Pair, now: TimeInterval) -> Int {
+        let recent = loopSeen[pair].map { now - $0 <= loopDecay } ?? false
+        let count = (recent ? loops[pair, default: 0] : 0) + 1
+        loops[pair] = count
+        loopSeen[pair] = now
+        return count
+    }
 
     /// Decide one pair. A `.raise` counts as an attempt.
     mutating func decide(_ pair: Pair, now: TimeInterval) -> Decision {
@@ -161,8 +176,7 @@ struct RaiseBehindThrottle {
             return .coolingDown(reason: cooldown.reason, remaining: cooldown.until - now)
         }
         if restores[pair] != nil {
-            let count = loops[pair, default: 0] + 1
-            loops[pair] = count
+            let count = nextLoopCount(pair, now: now)
             let duration = min(loopCooldown * pow(2, Double(count - 1)), loopCooldownCap)
             return startCooldown(pair, reason: "loop", for: duration, now: now)
         }
@@ -191,8 +205,7 @@ struct RaiseBehindThrottle {
     /// one. The click path asks `cooldown`, which never saw a restore.
     mutating func noteLoop(_ pairs: [Pair], now: TimeInterval) {
         for pair in pairs {
-            let count = loops[pair, default: 0] + 1
-            loops[pair] = count
+            let count = nextLoopCount(pair, now: now)
             let duration = min(loopCooldown * pow(2, Double(count - 1)), loopCooldownCap)
             cooldowns[pair] = (now + duration, "loop")
             attempts[pair] = nil

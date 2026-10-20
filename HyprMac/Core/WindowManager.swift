@@ -1181,7 +1181,7 @@ class WindowManager {
             // further .mouseMoved fires and FFM gets stuck on whatever the click
             // syncTracker last recorded. force a refocus 200ms later.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-                self?.mouseTracker.refocusUnderCursor()
+                self?.mouseTracker.refocusUnderCursor(afterMouseUp: true)
             }
         }
     }

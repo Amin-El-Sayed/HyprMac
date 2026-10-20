@@ -730,6 +730,24 @@ final class MouseTrackingPopupTests: XCTestCase {
         XCTAssertEqual(last, 11)
     }
 
+    /// the quiet window after a keyboard action gates the refocus that
+    /// follows a click, not the one a keyboard action itself asks for: a
+    /// send-to-scratchpad used to leave focus on the window it had parked
+    func testTheQuietWindowAfterAKeyGatesOnlyTheRefocusAfterAClick() {
+        windows = [
+            win(13, pid: otherPID, CGRect(x: 808, y: 0, width: 800, height: 1000)),
+            win(11, CGRect(x: 0, y: 0, width: 800, height: 1000)),
+        ]
+        let tracker = makeTracker(cursor: CGPoint(x: 1200, y: 500))
+        tracker.isMouseFocusSuppressed = { true }
+
+        tracker.refocusUnderCursor(afterMouseUp: true)
+        XCTAssertEqual(focused, [], "after a click the quiet window holds")
+
+        tracker.refocusUnderCursor()
+        XCTAssertEqual(focused, [13], "after a keyboard action it does not")
+    }
+
     func testWithoutAPopupHoverStillFocusesTheWindowUnderTheCursor() {
         windows = [
             win(12, pid: otherPID, CGRect(x: 150, y: 300, width: 400, height: 400)),
@@ -880,6 +898,20 @@ final class RaiseBehindLoopEscalationTests: XCTestCase {
             now += duration + 1
         }
         XCTAssertEqual(durations, [15, 30, 60, 120])
+    }
+
+    /// a pair quiet for a while starts its escalation over: one loop an
+    /// hour ago is not a reason for a ten-minute cooldown now
+    func testTheLoopCountDecaysAfterAQuietSpell() {
+        var throttle = RaiseBehindThrottle()
+        let pair = RaiseBehindThrottle.Pair(floater: 1, tile: 2)
+        throttle.noteLoop([pair], now: 0)
+        throttle.noteLoop([pair], now: 16)
+        XCTAssertEqual(throttle.cooldown(pair, now: 17)?.remaining ?? 0, 29, accuracy: 0.001, "second loop: 30 s")
+
+        throttle.noteLoop([pair], now: 16 + throttle.loopDecay + 1)
+        XCTAssertEqual(throttle.cooldown(pair, now: 16 + throttle.loopDecay + 2)?.remaining ?? 0, 14,
+                       accuracy: 0.001, "quiet for the decay span: back to 15 s")
     }
 
     /// the click re-raise asks `cooldown`, which never saw a restore, so a
