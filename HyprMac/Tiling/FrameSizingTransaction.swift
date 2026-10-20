@@ -152,12 +152,20 @@ struct FrameSizingConfiguration {
     /// spend exactly what was added for it and no more.
     var positionSettleBudget: TimeInterval { positionSettleBudgetOverride ?? deadline / 3 }
     var positionSettleBudgetOverride: TimeInterval?
+    /// The most the deadline may grow to, by any budget: what is left of
+    /// the attempt's whole budget when this pass starts. nil is no cap.
+    var deadlineCap: TimeInterval?
+
+    /// `deadline`, within the cap.
+    func capped(_ deadline: TimeInterval) -> TimeInterval {
+        deadlineCap.map { min(deadline, $0) } ?? deadline
+    }
 
     /// This configuration with the scale-change budget. The sample limit
     /// grows with the deadline so the settle loop can use the extra time.
     var withScaleChangeBudget: FrameSizingConfiguration {
         var extended = self
-        extended.deadline = max(deadline, scaleChangeDeadline)
+        extended.deadline = capped(max(deadline, scaleChangeDeadline))
         extended.maximumAttempts = max(maximumAttempts,
                                        Int((extended.deadline / pollInterval).rounded(.up)))
         return extended
@@ -168,7 +176,7 @@ struct FrameSizingConfiguration {
     /// The verified layout's timeout recovery and the tiled drag both use it.
     var withTimeoutRecoveryBudget: FrameSizingConfiguration {
         var relaxed = self
-        relaxed.deadline = max(deadline, 0.75)
+        relaxed.deadline = capped(max(deadline, 0.75))
         relaxed.perCallTimeout = max(perCallTimeout, 0.25)
         return relaxed
     }
@@ -256,11 +264,11 @@ struct FrameSizingAttempt {
     var configuration = FrameSizingConfiguration()
 
     /// The layout as it already stands. Every target is where its window
-    /// is, within the verdict's own tolerances, and the frames pass the
-    /// aggregate checks as they are, so there is nothing to write and
-    /// nothing to wait for: the capture that produced `originalFrames` is
-    /// the readback. Nil when any window is off its target, or the frames
-    /// do not pass together, and the ordinary pass runs.
+    /// is, within a point, and the frames pass the aggregate checks as they
+    /// are, so there is nothing to write: the capture that produced
+    /// `originalFrames` is the first readback, and the caller takes a
+    /// second one before it accepts. Nil when any window is off its target,
+    /// or the frames do not pass together, and the ordinary pass runs.
     ///
     /// Most retiles are this. A workspace switch retiles the other screen,
     /// a move retiles its source twice, a poll re-applies a tree nothing
@@ -277,7 +285,7 @@ struct FrameSizingAttempt {
         for target in targets {
             guard actual[target.windowID] == nil, valid(target.frame),
                   let original = originalFrames[target.windowID], valid(original),
-                  matches(original, target.frame) else { return nil }
+                  standsOn(original, target.frame) else { return nil }
             actual[target.windowID] = original
         }
         let validated = validateFrames(targets: targets, actualFrames: actual,
@@ -861,6 +869,18 @@ struct FrameSizingAttempt {
         frame.origin.x.isFinite && frame.origin.y.isFinite
             && frame.size.width.isFinite && frame.size.height.isFinite
             && frame.width > 0 && frame.height > 0
+    }
+
+    /// Whether a window already stands on `target`: a point of position and
+    /// a point of size, not the cell of rounding the verdict allows after a
+    /// write. That allowance is for an app that rounds what it was asked
+    /// for; a window a cell short of its slot has not been asked yet, and
+    /// taking it as standing there would never correct it.
+    private func standsOn(_ actual: CGRect, _ target: CGRect) -> Bool {
+        abs(actual.minX - target.minX) <= configuration.positionTolerance
+            && abs(actual.minY - target.minY) <= configuration.positionTolerance
+            && abs(actual.width - target.width) <= configuration.sizeTolerance
+            && abs(actual.height - target.height) <= configuration.sizeTolerance
     }
 
     private func matches(_ actual: CGRect, _ target: CGRect) -> Bool {

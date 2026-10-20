@@ -250,6 +250,21 @@ final class FrameSizingTransactionTests: XCTestCase {
         XCTAssertEqual(result?.actualFrames, [7: sat, 8: right])
     }
 
+    /// the cell of rounding the verdict allows after a write is not room
+    /// to stand in: a window two points short of its slot has not been
+    /// asked yet, and is written
+    func testAnOriginalTwoPointsOffIsNotInPlace() {
+        let (fake, left, right, usable) = inPlaceFixture()
+        let narrow = CGRect(x: left.minX, y: left.minY, width: left.width - 2, height: left.height)
+        XCTAssertNil(FrameSizingAttempt(io: fake.io()).alreadyApplied(
+            targets: [.init(windowID: 7, frame: left), .init(windowID: 8, frame: right)],
+            originalFrames: [7: narrow, 8: right], usableFrame: usable, gap: 8, generation: 1))
+        let shifted = left.offsetBy(dx: 2, dy: 0)
+        XCTAssertNil(FrameSizingAttempt(io: fake.io()).alreadyApplied(
+            targets: [.init(windowID: 7, frame: left), .init(windowID: 8, frame: right)],
+            originalFrames: [7: shifted, 8: right], usableFrame: usable, gap: 8, generation: 1))
+    }
+
     func testOneWindowOffItsTargetIsNotInPlace() {
         let (fake, left, right, usable) = inPlaceFixture()
         let elsewhere = CGRect(x: 508, y: 8, width: 400, height: 784)

@@ -608,11 +608,38 @@ final class FrameReadbackPollerInPlaceTests: XCTestCase {
                                         originalFrames: desk.frames)
 
         XCTAssertEqual(result.verdict, .accepted)
-        XCTAssertTrue(operations.isEmpty, "\(operations)")
+        XCTAssertFalse(operations.contains("size") || operations.contains("position"), "\(operations)")
+        XCTAssertEqual(operations.filter { $0 == "read" }.count, 4, "a second read of both windows")
         XCTAssertEqual(time, 0, "no settle")
         XCTAssertTrue(result.progress.verifiedInPlace)
         XCTAssertTrue(FrameSizingProgressReport(candidate: result.progress).candidateVerified)
         XCTAssertEqual(desk.a.cachedFrame, desk.left, "nothing moved, so the cache stands")
+    }
+
+    /// two stable reads, as for a written frame: a window that moved
+    /// between the capture and the second read is written
+    func testASecondReadThatDiffersWritesInstead() {
+        let desk = Desk()
+        var operations: [String] = []
+        var time: TimeInterval = 0
+        let moved = desk.left.offsetBy(dx: 40, dy: 0)
+        let io = FrameSizingIO(
+            setMessagingTimeout: { _, _ in .success },
+            writeSize: { _, _, _ in operations.append("size"); return .success },
+            writePosition: { _, _, _ in operations.append("position"); return .success },
+            // the capture handed over says 41 stands on its slot; the second
+            // read, the first through this io, finds it elsewhere
+            readPosition: { id, _ in (.success, id == 41 ? moved.origin : desk.frames[id]?.origin) },
+            readSize: { id, _ in (.success, desk.frames[id]?.size) },
+            now: { time }, sleep: { time += $0 }, currentGeneration: { 1 })
+        let poller = FrameReadbackPoller(generation: { 1 }, ioFactory: { _, _ in io })
+
+        let result = poller.applyLayout([(desk.a, desk.left), (desk.b, desk.right)],
+                                        usableFrame: desk.usable, gap: 8, generation: 1,
+                                        originalFrames: desk.frames)
+
+        XCTAssertFalse(result.progress.verifiedInPlace)
+        XCTAssertTrue(operations.contains("size"), "the ordinary pass ran: \(operations)")
     }
 
     func testWithoutTheOriginalsThePassWrites() {
@@ -652,6 +679,26 @@ final class FrameReadbackPollerBudgetTests: XCTestCase {
         XCTAssertEqual(reveal.deadline, base.deadline + 2 * base.positionSettleBudget, accuracy: 0.0001)
         XCTAssertGreaterThanOrEqual(Double(reveal.maximumAttempts) * reveal.pollInterval, reveal.deadline)
         XCTAssertEqual(FrameReadbackPoller.scaled(base, for: 3, positionFirst: 0).deadline, base.deadline)
+    }
+
+    /// what is left of the attempt's whole budget caps every growth a pass
+    /// may ask for: the per-target term, the scale-change budget and the
+    /// timeout recovery's budget
+    func testARemainingBudgetCapsEveryGrowth() {
+        let poller = FrameReadbackPoller(generation: { 1 }, ioFactory: { _, _ in
+            FrameSizingIO(setMessagingTimeout: { _, _ in .success },
+                          writeSize: { _, _, _ in .success }, writePosition: { _, _, _ in .success },
+                          readPosition: { _, _ in (.success, nil) }, readSize: { _, _ in (.success, nil) },
+                          now: { 0 }, sleep: { _ in }, currentGeneration: { 1 })
+        })
+        XCTAssertEqual(poller.withRemainingBudget(0.2).deadline, 0.2, accuracy: 0.0001)
+        XCTAssertEqual(poller.withRemainingBudget(5).deadline, poller.deadline, accuracy: 0.0001,
+                       "a budget larger than the deadline changes nothing")
+        var base = FrameSizingConfiguration()
+        base.deadlineCap = 0.5
+        XCTAssertEqual(FrameReadbackPoller.scaled(base, for: 8, positionFirst: 3).deadline, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(base.withScaleChangeBudget.deadline, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(base.withTimeoutRecoveryBudget.deadline, 0.5, accuracy: 0.0001)
     }
 
     /// the cap each settle may spend is what was budgeted for it, not a

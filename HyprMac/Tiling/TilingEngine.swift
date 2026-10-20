@@ -1189,6 +1189,16 @@ class TilingEngine {
         ioFactory: frameSizingIOFactory
     )
 
+    /// The most one verified layout attempt may hold the main thread: the
+    /// candidate, its adjusted pass, the rollback and the timeout
+    /// recovery's retry with its rollback share it, each capped at what is
+    /// left when it starts. Summed, their own deadlines came to more than
+    /// three seconds, plus the per-target and scale-change growth.
+    static let passBudget: TimeInterval = 2.0
+    /// What a pass is never cut below, so the rollback, the safety net,
+    /// always gets a hearing.
+    static let passBudgetFloor: TimeInterval = 0.25
+
     private lazy var timeoutRecoveryPoller: FrameReadbackPoller = {
         FrameReadbackPoller(
             configuration: FrameSizingConfiguration().withTimeoutRecoveryBudget,
@@ -1451,7 +1461,13 @@ class TilingEngine {
         // it. that pass, and a rollback carrying it back, get the longer
         // budget; nothing else does.
         let scaleChanges = scaleChanges(originalFrames, destination: rect)
-        let poller = scaleChanges.isEmpty ? readbackPoller : readbackPoller.withScaleChangeBudget()
+        // one budget for the whole attempt, see `passBudget`
+        let passStarted = Date()
+        func budgeted(_ poller: FrameReadbackPoller) -> FrameReadbackPoller {
+            let remaining = Self.passBudget - Date().timeIntervalSince(passStarted)
+            return poller.withRemainingBudget(max(Self.passBudgetFloor, remaining))
+        }
+        let poller = budgeted(scaleChanges.isEmpty ? readbackPoller : readbackPoller.withScaleChangeBudget())
         if !scaleChanges.isEmpty {
             hyprLog(.notice, .tiling, "verified layout scale change: ids=["
                     + scaleChanges.keys.sorted().map { id in
@@ -1498,7 +1514,7 @@ class TilingEngine {
             if resolves {
                 terminalLayouts = adjusted
                 terminal = applyLayoutFinal(adjusted, usableFrame: rect, generation: generation,
-                                            poller: poller)
+                                            poller: budgeted(poller))
                 adoptTerminal = { self.copyVerifiedRatios(from: candidate.root, to: tree.root) }
                 if case .accepted = terminal.verdict {
                     copyVerifiedRatios(from: candidate.root, to: tree.root)
@@ -1518,7 +1534,7 @@ class TilingEngine {
                 let layouts = recovered.layout(in: rect, gap: gapSize, padding: outerPadding)
                 terminalLayouts = layouts
                 terminal = applyLayoutFinal(layouts, usableFrame: rect, generation: generation,
-                                            poller: poller)
+                                            poller: budgeted(poller))
                 adoptTerminal = { tree.root = recovered.root }
                 if case .accepted = terminal.verdict {
                     tree.root = recovered.root
@@ -1605,7 +1621,7 @@ class TilingEngine {
         // only a rollback that carries a window back across the scale
         // boundary is slow for the same reason the candidate was
         let restoresAcrossScales = originals.contains { scaleChanges[$0.0.windowID] != nil }
-        let restorationPoller = restoresAcrossScales ? poller : readbackPoller
+        let restorationPoller = budgeted(restoresAcrossScales ? poller : readbackPoller)
         let restored = restorationPoller.applyRestoration(originals, usableFrame: restorationFrame,
                                                           gap: gapSize, generation: generation)
         var progress = candidateProgress
@@ -1618,10 +1634,10 @@ class TilingEngine {
                layoutGeneration == generation {
                 hyprLog(.notice, .tiling, "verified layout AX timeout recovery: reason=\(reason) ids="
                         + "[" + windows.map { String($0.windowID) }.joined(separator: ", ") + "]")
-                let relaxedPoller = scaleChanges.isEmpty
-                    ? timeoutRecoveryPoller : timeoutRecoveryPoller.withScaleChangeBudget()
-                let relaxedRestorationPoller = restoresAcrossScales
-                    ? relaxedPoller : timeoutRecoveryPoller
+                let relaxedPoller = budgeted(scaleChanges.isEmpty
+                    ? timeoutRecoveryPoller : timeoutRecoveryPoller.withScaleChangeBudget())
+                let relaxedRestorationPoller = budgeted(restoresAcrossScales
+                    ? relaxedPoller : timeoutRecoveryPoller)
                 // a pass like any other: what it reads back about a floor is
                 // kept, or the admission retry 250 ms later writes the same
                 // refused frames again and learns them a second time
@@ -3245,9 +3261,6 @@ class TilingEngine {
     func removeWindowMembershipOnly(_ window: HyprWindow, fromWorkspace workspace: Int) {
         admittedWindowIDs[workspace]?.remove(window.windowID)
         forgetHeld(window.windowID)
-        // an explicit departure, like removeWindow: a newcomer wherever it
-        // lands next
-        slotMemory.removeValue(forKey: window.windowID)
         for (key, tree) in trees where key.workspace == workspace && tree.contains(window) {
             tree.remove(window)
             tree.root.pruneEmptyNodes()

@@ -71,6 +71,16 @@ struct FrameReadbackPoller {
 
     var deadline: TimeInterval { configuration.deadline }
 
+    /// The same poller with its deadline capped at `remaining`, what is
+    /// left of the attempt's whole budget. Every budget this pass may grow
+    /// by stays under the cap too.
+    func withRemainingBudget(_ remaining: TimeInterval) -> FrameReadbackPoller {
+        var capped = configuration
+        capped.deadlineCap = remaining
+        capped.deadline = min(configuration.deadline, remaining)
+        return FrameReadbackPoller(configuration: capped, generation: generation, ioFactory: ioFactory)
+    }
+
     /// A candidate pass. `originalFrames` are the frames the caller captured
     /// just before; with them a layout every window already stands on is
     /// accepted from the capture, without a write or a wait.
@@ -138,7 +148,7 @@ struct FrameReadbackPoller {
             + Double(max(0, positionFirst)) * configuration.positionSettleBudget
         guard extra > 0 else { return configuration }
         var scaled = configuration
-        scaled.deadline = configuration.deadline + extra
+        scaled.deadline = configuration.capped(configuration.deadline + extra)
         // the settle cap is a third of the deadline; grown with it, three
         // settles that all hit their cap would eat the whole grown deadline
         // before a size or a readback. each settle keeps the cap it was
@@ -179,16 +189,19 @@ struct FrameReadbackPoller {
             configuration: configuration
         )
         let targets = layouts.map { FrameSizingAttempt.Target(windowID: $0.0.windowID, frame: $0.1) }
-        // a layout every window already stands on: the capture that produced
-        // the originals is the readback, nothing is written and nothing is
-        // waited for. the cached frames stay, since nothing moved
+        // a layout every window already stands on, within a point: the
+        // capture that produced the originals is the first readback, a second
+        // read has to agree with it, and then nothing is written and nothing
+        // is waited for. the cached frames stay, since nothing moved
         if let originalFrames,
            let inPlace = attempt.alreadyApplied(targets: targets, originalFrames: originalFrames,
                                                 usableFrame: usableFrame, gap: gap,
-                                                generation: requestedGeneration) {
+                                                generation: requestedGeneration),
+           Self.standsStill(attempt.captureFrames(windowIDs: ids, generation: requestedGeneration),
+                            as: originalFrames) {
             hyprLog(.debug, .tiling, "frame attempt: phase=\(phase.rawValue) gen=\(requestedGeneration) "
                     + "wids=\(ids) verdict=accepted in place — every window is already on its"
-                    + " target, nothing written")
+                    + " target in two reads, nothing written")
             return classify(inPlace, layouts: layouts, configuration: configuration)
         }
         if generation() == requestedGeneration {
@@ -200,6 +213,14 @@ struct FrameReadbackPoller {
             phase: phase
         )
         return classify(raw, layouts: layouts, configuration: configuration)
+    }
+
+    /// Whether a second read found every window exactly where the first
+    /// one did. Two stable reads are what the verdict asks of a written
+    /// frame; a layout taken as standing gets the same.
+    static func standsStill(_ again: FrameSizingAttempt.Result, as first: [CGWindowID: CGRect]) -> Bool {
+        guard case .accepted = again.verdict else { return false }
+        return first.allSatisfy { again.actualFrames[$0.key] == $0.value }
     }
 
     func captureFrames(_ windows: [HyprWindow], generation requestedGeneration: UInt64) -> FrameSizingAttempt.Result {
