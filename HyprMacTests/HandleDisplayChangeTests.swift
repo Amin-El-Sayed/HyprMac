@@ -203,3 +203,42 @@ private final class SnapshotScreen: SyntheticScreen {
         [NSDeviceDescriptionKey("NSScreenNumber"): NSNumber(value: displayID)]
     }
 }
+
+private final class DeskScreen: SyntheticScreen {
+    let bounds: NSRect
+    init(x: CGFloat, width: CGFloat) {
+        bounds = NSRect(x: x, y: 0, width: width, height: 900)
+        super.init()
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override var frame: NSRect { bounds }
+    override var visibleFrame: NSRect { bounds }
+}
+
+final class DisplayReturnTests: XCTestCase {
+    /// an external monitor that leaves for a sleep and comes back showed
+    /// its lowest home workspace on return, which hid the one the user was
+    /// on and parked its windows. it shows what it showed before it left
+    func testAReturningScreenShowsTheWorkspaceItLastShowed() {
+        let laptop = DeskScreen(x: 0, width: 1400)
+        let external = DeskScreen(x: 1400, width: 1920)
+        var live: [NSScreen] = [laptop, external]
+        let display = DisplayManager(screenSource: { live })
+        let workspaces = WorkspaceManager(displayManager: display)
+        workspaces.initializeMonitors()
+        _ = workspaces.switchWorkspace(4, cursorScreen: external)
+        XCTAssertEqual(workspaces.workspaceForScreen(external), 4)
+
+        live = [laptop]
+        display.refresh()
+        workspaces.initializeMonitors()
+        XCTAssertFalse(workspaces.isWorkspaceVisible(4), "one screen: ws4 is hidden")
+
+        live = [laptop, external]
+        display.refresh()
+        workspaces.initializeMonitors()
+
+        XCTAssertEqual(workspaces.workspaceForScreen(external), 4)
+        XCTAssertEqual(workspaces.workspaceForScreen(laptop), 1)
+    }
+}
