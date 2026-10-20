@@ -32,6 +32,29 @@ including a mode change that leaves tree keys unchanged. Focus and informational
 pending admission recovery. See [the stability audit](stability-audit-2026-09-13.md)
 for regression evidence and unresolved display/focus limitations.
 
+A window discovery takes out of a tree for a poll or two — an AX read
+that failed, a minimize, Cmd-H, a Space — remembers its slot: the subtree
+it shared a split with, the side it was on, and the split's axis and
+ratio (`TilingEngine.SlotMemory`). It goes back beside that subtree when
+it returns, so nothing else moves; two that leave together come back
+together, the restores running until none is left that can. A memory is
+kept while its neighbours are not in the tree and spent once they are, or
+by a smart insert, or by an explicit departure (a move, a float, a send),
+which makes the window a newcomer wherever it lands next. A pin the user
+set with `togglesplit` comes back as the user's pin.
+
+Ratios reset only when the membership changes: a pass over the same
+members keeps the ratios the last accepted pass found, so a known minimum
+is not probed again on every retile, and user-set ratios survive every
+reset. A removal before the pass — discovery's, or an explicit one —
+resets them itself, so a split skewed for a min-size app does not stay
+skewed after that app is gone.
+
+Smart insert pins the axis it chose at the split, so a later ratio change
+cannot flip a stack into columns; the pin is automatic, never saved, and
+dropped when the tree's screen turns to the other orientation, by
+migration or in place.
+
 ## Tree shape
 
 One `BSPTree` per `(workspace, screen)` pair, owned by

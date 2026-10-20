@@ -351,6 +351,11 @@ class TilingEngine {
             rememberSlot(of: w, in: t, key: key)
             t.remove(w)
             t.root.pruneEmptyNodes()
+            // the membership changed here, not in the pass that follows, so
+            // the pass would keep the ratios: a split skewed for a min-size
+            // app stayed skewed after that app was gone. user-set ratios
+            // stay, as on every reset
+            t.root.resetSplitRatios()
             return
         }
     }
@@ -1991,6 +1996,11 @@ class TilingEngine {
         let t = candidate ?? tree(for: key)
         let rect = layoutRect(for: key, screen: screen)
 
+        // a screen rotated in place keeps its key, so the migration's drop
+        // of the axes pinned for the other orientation never ran: the pins
+        // stacked a landscape layout on the portrait screen
+        t.dropAutomaticSplitOverrides(ifPinnedAgainst: rect)
+
         let tileWindows = windows.filter { !$0.isFloating }
         let treeWindows = t.allWindows
         let currentIDs = Set(tileWindows.map { $0.windowID })
@@ -2551,6 +2561,7 @@ class TilingEngine {
                 let generation = invalidatePendingLayout()
                 t.remove(window)
                 t.root.pruneEmptyNodes()
+                t.root.resetSplitRatios()
                 if let screen = displayManager.screens.first(where: {
                     TilingKey(workspace: workspace, screen: $0) == key
                 }) {
@@ -3073,6 +3084,8 @@ class TilingEngine {
         let besideIDs: Set<CGWindowID>
         let wasLeft: Bool
         let direction: SplitDirection?
+        /// whether the axis was smart insert's pin, not the user's togglesplit
+        let directionIsAutomatic: Bool
         let ratio: CGFloat
         let userSet: Bool
     }
@@ -3088,6 +3101,7 @@ class TilingEngine {
         guard !besideIDs.isEmpty else { return }
         slotMemory[window.windowID] = SlotMemory(key: key, besideIDs: besideIDs, wasLeft: wasLeft,
                                                  direction: parent.splitOverride,
+                                                 directionIsAutomatic: parent.splitOverrideIsAutomatic,
                                                  ratio: parent.splitRatio, userSet: parent.userSetRatio)
     }
 
@@ -3118,6 +3132,7 @@ class TilingEngine {
         guard layoutEngine.pairFit(tenantMinimum, minimumSize(for: window),
                                    in: targetRect, dir: direction).fits else { return false }
         tree.insert(window, beside: target, onLeft: memory.wasLeft, direction: direction,
+                    automatic: memory.direction == nil || memory.directionIsAutomatic,
                     ratio: memory.ratio, userSet: memory.userSet)
         hyprLog(.notice, .tiling, "slot restored: \(window.windowID) back beside "
                 + "\(memory.besideIDs.sorted()) on ws\(key.workspace)")
@@ -3381,6 +3396,7 @@ class TilingEngine {
         for (key, tree) in trees where key.workspace == workspace && tree.contains(window) {
             tree.remove(window)
             tree.root.pruneEmptyNodes()
+            tree.root.resetSplitRatios()
             pendingInsertedWindowIDs[key]?.removeAll { $0 == window.windowID }
             if tree.allWindows.isEmpty {
                 trees.removeValue(forKey: key)

@@ -152,6 +152,114 @@ final class TilingEngineMembershipTransactionTests: XCTestCase {
         XCTAssertEqual(engine.intendedTileRects(), before)
     }
 
+    /// discovery removes a window before the pass runs, so the pass saw
+    /// no membership change and kept the ratios: a split skewed for a
+    /// min-size app stayed skewed after that app was gone
+    func testARatioSkewedForAMinSizeAppResetsOnceItIsGone() throws {
+        let screen = MembershipTestScreen()
+        let trace = MembershipTrace()
+        let engine = TilingEngine(displayManager: DisplayManager(screenSource: { [screen] }),
+                                  frameSizingIOFactory: { _, generation in trace.io(generation) })
+        let a = makeWindow(id: 1021), b = makeWindow(id: 1022), c = makeWindow(id: 1023)
+        let rect = engine.displayManager.cgRect(for: screen)
+        for w in [a, b, c] { trace.frames[w.windowID] = rect.insetBy(dx: 100, dy: 100) }
+        // b needs most of the width, so the root split leans its way
+        trace.minSize[b.windowID] = CGSize(width: rect.width * 0.7, height: 0)
+        XCTAssertTrue(engine.tileWindows([a, b], onWorkspace: 1, screen: screen).published)
+        let root = try XCTUnwrap(engine.existingTree(forWorkspace: 1, screen: screen)).root
+        XCTAssertLessThan(root.splitRatio, 0.4, "skewed for b")
+
+        engine.removeWindowID(b.windowID)
+        XCTAssertTrue(engine.tileWindows([a], onWorkspace: 1, screen: screen).published)
+
+        let after = try XCTUnwrap(engine.existingTree(forWorkspace: 1, screen: screen)).root
+        XCTAssertEqual(after.splitRatio, TilingConfig.defaultRatio, accuracy: 0.0001,
+                       "the skew left with the app")
+    }
+
+    /// a screen rotated in place keeps its tree's key, so the migration's
+    /// drop of the axes pinned for the other orientation never ran
+    func testAutomaticPinsDropWhenTheScreenTurnsInPlace() throws {
+        let screen = RotatableScreen()
+        let trace = MembershipTrace()
+        let display = DisplayManager(screenSource: { [screen] })
+        let engine = TilingEngine(displayManager: display,
+                                  frameSizingIOFactory: { _, generation in trace.io(generation) })
+        let windows = [makeWindow(id: 1031), makeWindow(id: 1032)]
+        for w in windows { trace.frames[w.windowID] = display.cgRect(for: screen).insetBy(dx: 100, dy: 100) }
+        XCTAssertTrue(engine.tileWindows(windows, onWorkspace: 1, screen: screen).published)
+        let root = try XCTUnwrap(engine.existingTree(forWorkspace: 1, screen: screen)).root
+        XCTAssertEqual(root.splitOverride, .horizontal, "landscape: side by side, pinned")
+        XCTAssertTrue(root.splitOverrideIsAutomatic)
+
+        screen.bounds = NSRect(x: 4000, y: 0, width: 1000, height: 1600)
+        display.refresh()
+        XCTAssertTrue(engine.tileWindows(windows, onWorkspace: 1, screen: screen).published)
+
+        let turned = try XCTUnwrap(engine.existingTree(forWorkspace: 1, screen: screen)).root
+        XCTAssertNotEqual(turned.splitOverride, .horizontal, "the landscape pin is gone")
+        let rects = engine.intendedTileRects()
+        XCTAssertEqual(rects[1031]!.minX, rects[1032]!.minX, accuracy: 0.5, "stacked on the portrait screen")
+    }
+
+    /// a pin the user set with togglesplit came back as smart insert's own
+    /// after a minimize and a return, and a migration could drop it
+    func testAUserPinSurvivesAReturn() throws {
+        let screen = MembershipTestScreen()
+        let trace = MembershipTrace()
+        let engine = TilingEngine(displayManager: DisplayManager(screenSource: { [screen] }),
+                                  frameSizingIOFactory: { _, generation in trace.io(generation) })
+        let a = makeWindow(id: 1041), b = makeWindow(id: 1042)
+        let rect = engine.displayManager.cgRect(for: screen)
+        for w in [a, b] { trace.frames[w.windowID] = rect.insetBy(dx: 100, dy: 100) }
+        XCTAssertTrue(engine.tileWindows([a, b], onWorkspace: 1, screen: screen).published)
+        engine.toggleSplit(a, onWorkspace: 1, screen: screen)
+        let root = try XCTUnwrap(engine.existingTree(forWorkspace: 1, screen: screen)).root
+        let pinned = try XCTUnwrap(root.splitOverride)
+        XCTAssertFalse(root.splitOverrideIsAutomatic)
+
+        engine.removeWindowID(b.windowID)
+        XCTAssertTrue(engine.tileWindows([a], onWorkspace: 1, screen: screen).published)
+        XCTAssertTrue(engine.tileWindows([a, b], onWorkspace: 1, screen: screen).published)
+
+        let back = try XCTUnwrap(engine.existingTree(forWorkspace: 1, screen: screen)).root
+        XCTAssertEqual(back.splitOverride, pinned)
+        XCTAssertFalse(back.splitOverrideIsAutomatic, "still the user's pin")
+    }
+
+    /// a saved layout comes back in the same shape: automatic pins are not
+    /// saved and are pinned again from the same rect, the user's are saved
+    func testASavedLayoutRestoresToTheSameShape() throws {
+        let screen = MembershipTestScreen()
+        let trace = MembershipTrace()
+        let engine = TilingEngine(displayManager: DisplayManager(screenSource: { [screen] }),
+                                  frameSizingIOFactory: { _, generation in trace.io(generation) })
+        let windows = [makeWindow(id: 1051), makeWindow(id: 1052), makeWindow(id: 1053)]
+        let rect = engine.displayManager.cgRect(for: screen)
+        for w in windows { trace.frames[w.windowID] = rect.insetBy(dx: 100, dy: 100) }
+        XCTAssertTrue(engine.tileWindows(windows, onWorkspace: 1, screen: screen).published)
+        engine.toggleSplit(windows[2], onWorkspace: 1, screen: screen)
+        for _ in 0..<2 { engine.resizeInDirection(windows[0], direction: .right, onWorkspace: 1, screen: screen) }
+        let before = engine.intendedTileRects()
+        let saved = try XCTUnwrap(engine.layoutTree(forWorkspace: 1, ref: {
+            SavedWindowRef(bundleID: "app.\($0.windowID)", title: "")
+        }))
+
+        let again = TilingEngine(displayManager: DisplayManager(screenSource: { [screen] }),
+                                 frameSizingIOFactory: { _, generation in trace.io(generation) })
+        let fresh = windows.map { makeWindow(id: $0.windowID) }
+        let outcome = again.rebuildTree(forWorkspace: 1, screen: screen, from: saved, windows: fresh,
+                                        applyFrames: false) { ref in
+            fresh.first { "app.\($0.windowID)" == ref.bundleID }
+        }
+        guard case .rebuilt = outcome else { return XCTFail("expected a rebuilt tree, got \(outcome)") }
+        let tree = try XCTUnwrap(again.existingTree(forWorkspace: 1, screen: screen))
+        let restored = Dictionary(uniqueKeysWithValues: tree.layout(
+            in: rect, gap: again.gapSize, padding: again.outerPadding
+        ).map { ($0.0.windowID, $0.1) })
+        XCTAssertEqual(restored, before, "the same shape, slot for slot")
+    }
+
     /// the same for a manual resize: a window opening or coming back no
     /// longer wipes every ratio the user set on the workspace
     func testAReturningMemberKeepsTheManualResizes() {
@@ -1727,6 +1835,12 @@ private final class MembershipTrace {
         }
         return io
     }
+}
+
+private final class RotatableScreen: SyntheticScreen {
+    var bounds = NSRect(x: 4000, y: 0, width: 1600, height: 1000)
+    override var frame: NSRect { bounds }
+    override var visibleFrame: NSRect { bounds }
 }
 
 private final class MembershipTestScreen: SyntheticScreen {

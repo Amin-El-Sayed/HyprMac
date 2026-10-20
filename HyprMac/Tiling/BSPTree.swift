@@ -192,7 +192,7 @@ class BSPTree {
     /// coming back to the slot it was taken out of. The tenant moves down
     /// into a child, so `target` keeps its place under its parent.
     func insert(_ window: HyprWindow, beside target: BSPNode, onLeft: Bool,
-                direction: SplitDirection, ratio: CGFloat, userSet: Bool) {
+                direction: SplitDirection, automatic: Bool = true, ratio: CGFloat, userSet: Bool) {
         let tenant = BSPNode(window: target.window)
         tenant.left = target.left
         tenant.right = target.right
@@ -217,7 +217,9 @@ class BSPTree {
         target.splitRatio = ratio
         target.userSetRatio = userSet
         target.splitOverride = direction
-        target.splitOverrideIsAutomatic = true
+        // a pin the user set with togglesplit comes back as the user's, not
+        // as one a migration may drop
+        target.splitOverrideIsAutomatic = automatic
         target.savedSplitRatio = nil
         target.savedChildWasLeft = nil
         target.savedSplitOverride = nil
