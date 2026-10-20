@@ -21,9 +21,14 @@ writes nothing and keeps the whole key unverified. Adjustment uses guarded
 refusal evidence and skips an adjusted write when the proposed frames cannot
 accommodate the refused axes within the existing candidate allowance.
 
-Display fingerprints refresh their input and include physical ID and usable
-bounds. Every display reconcile invalidates active sizing, including a mode
-change that leaves tree keys unchanged. Focus and informational actions keep
+Display fingerprints refresh their input and are the sorted list of each
+display's name and frame, plus the usable bounds; the physical display id
+is not part of them. It changed on some wakes without the desk changing,
+and `NSScreen.screens` came back in another order, and either read as a
+new topology: every workspace re-homed and every visible one retiled for a
+desk that had not changed. Two displays cannot share a frame, so the name
+and frame identify one. Every display reconcile invalidates active sizing,
+including a mode change that leaves tree keys unchanged. Focus and informational actions keep
 pending admission recovery. See [the stability audit](stability-audit-2026-09-13.md)
 for regression evidence and unresolved display/focus limitations.
 

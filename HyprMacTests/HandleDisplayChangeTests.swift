@@ -180,15 +180,17 @@ final class DisplaySnapshotTests: XCTestCase {
         XCTAssertNotEqual(manager.refreshedFingerprint(), before)
     }
 
-    func testUsableBoundsAndPhysicalIdentityChangeTheFingerprint() {
+    func testUsableBoundsChangeTheFingerprintAndTheDisplayIDDoesNot() {
         let screen = SnapshotScreen()
         let manager = DisplayManager(screenSource: { [screen] })
         let before = manager.refreshedFingerprint()
         screen.usable = screen.bounds.insetBy(dx: 0, dy: 25)
         let inset = manager.refreshedFingerprint()
         XCTAssertNotEqual(inset, before)
+        // the id a display comes back with after a wake is not a new desk;
+        // the same name at the same frame is the same monitor
         screen.displayID = 42
-        XCTAssertNotEqual(manager.refreshedFingerprint(), inset)
+        XCTAssertEqual(manager.refreshedFingerprint(), inset)
     }
 }
 
@@ -240,5 +242,16 @@ final class DisplayReturnTests: XCTestCase {
 
         XCTAssertEqual(workspaces.workspaceForScreen(external), 4)
         XCTAssertEqual(workspaces.workspaceForScreen(laptop), 1)
+    }
+
+    /// NSScreen.screens comes back in another order after some wakes, and
+    /// the display id changes; neither is a new desk
+    func testTheDisplayFingerprintIgnoresScreenOrderAndIDs() {
+        let a = DeskScreen(x: 0, width: 1400)
+        let b = DeskScreen(x: 1400, width: 1920)
+        let forward = DisplayManager(screenSource: { [a, b] }).refreshedFingerprint()
+        let backward = DisplayManager(screenSource: { [b, a] }).refreshedFingerprint()
+        XCTAssertEqual(forward, backward)
+        XCTAssertFalse(forward.contains("NSScreenNumber"))
     }
 }
