@@ -253,6 +253,14 @@ class AccessibilityManager {
         case absent
     }
 
+    /// Whether the walk is backing off from `pid`: its window list timed
+    /// out and is not asked again yet. A read of it now would time out
+    /// too, so callers that keep a budget of asks skip it without spending
+    /// one.
+    func isBackingOff(pid: pid_t) -> Bool {
+        stallBackoff.isBackingOff(pid, now: Date())
+    }
+
     /// Classify a hidden window. Returns nil when the AX list can't be
     /// read (caller treats unknown as still-around, the conservative side).
     func hiddenWindowState(windowID target: CGWindowID, pid: pid_t) -> HiddenWindowState? {
@@ -345,12 +353,18 @@ class AccessibilityManager {
                 // reported unreadable and discovery holds them in place.
                 // log the outage edges only, not every cycle.
                 unreadable.formUnion(visible.map(\.windowID))
-                let wait = stallBackoff.noteFailure(pid, now: now)
+                // only a timeout earns the backoff: the app has a window
+                // list and did not answer for it in time. any other error
+                // — an app still launching, one whose accessibility is not
+                // up yet — is asked again on the next walk, so it tiles as
+                // soon as it can and not up to eight seconds later
+                let wait = result == .cannotComplete ? stallBackoff.noteFailure(pid, now: now) : nil
                 if !visible.isEmpty {
                     let n = (axListFailures[pid] ?? 0) + 1
                     axListFailures[pid] = n
                     if n == 1 {
-                        hyprLog(.notice, .discovery, "AX window-list read FAILED for \(bundle) (err \(result.rawValue)) — \(candidates.count) on-screen window(s) drop from this snapshot; asked again in \(Int((wait * 1000).rounded()))ms")
+                        hyprLog(.notice, .discovery, "AX window-list read FAILED for \(bundle) (err \(result.rawValue)) — \(candidates.count) on-screen window(s) drop from this snapshot"
+                                + (wait.map { "; asked again in \(Int(($0 * 1000).rounded()))ms" } ?? ""))
                     }
                 }
                 continue

@@ -15,6 +15,10 @@ final class StubAccessibility: AccessibilityManager {
     var stateAnswer: AccessibilityManager.HiddenWindowState?
     /// ids the service asked about, so tests can pin who gets re-verified.
     var queries: [CGWindowID] = []
+    /// pids the walk is backing off from
+    var backingOff: Set<pid_t> = []
+
+    override func isBackingOff(pid: pid_t) -> Bool { backingOff.contains(pid) }
 
     override func hiddenWindowState(windowID: CGWindowID, pid: pid_t) -> AccessibilityManager.HiddenWindowState? {
         queries.append(windowID)
@@ -582,6 +586,26 @@ final class WindowDiscoveryServiceTests: XCTestCase {
         XCTAssertEqual(access.queries.filter { $0 == 13 }.count, 1 + 5)
         XCTAssertTrue(cache.hiddenWindowIDs.contains(13))
         XCTAssertTrue(cache.reservedHiddenWindowIDs.contains(13))
+    }
+
+    /// while the walk backs off from an app, a re-check of its hidden
+    /// window would time out too; it is skipped and spends none of the few
+    /// asks the re-check gets
+    func testAReCheckOfABackedOffAppSpendsNoAsk() {
+        let access = StubAccessibility()
+        access.stateAnswer = nil
+        let (svc, cache, _) = makeService(accessibility: access)
+        cache.knownWindowIDs = [14]
+        cache.windowOwners[14] = 8400
+
+        _ = compute(svc, snapshot: [], runningPIDs: [8400])
+        access.backingOff = [8400]
+        for _ in 0..<10 { _ = compute(svc, snapshot: [], runningPIDs: [8400]) }
+        XCTAssertEqual(access.queries.filter { $0 == 14 }.count, 1, "the one ask when it vanished")
+
+        access.backingOff = []
+        for _ in 0..<10 { _ = compute(svc, snapshot: [], runningPIDs: [8400]) }
+        XCTAssertEqual(access.queries.filter { $0 == 14 }.count, 1 + 5, "the budget was untouched meanwhile")
     }
 
     func testUnreadableHiddenWindowReservesUntilAReVerifyProvesItClosed() {

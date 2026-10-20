@@ -584,6 +584,9 @@ final class WindowDiscoveryService {
             }
             guard !currentIDs.contains(id) else { continue }
             guard let pid = stateCache.windowOwners[id], runningPIDs.contains(pid) else { continue }
+            // an app the walk is backing off from would answer nil without
+            // being asked; that is not one of the few asks this gets
+            guard !accessibility.isBackingOff(pid: pid) else { continue }
             switch accessibility.hiddenWindowState(windowID: id, pid: pid) {
             case .absent:
                 stateCache.reservedHiddenWindowIDs.remove(id)
