@@ -106,13 +106,16 @@ class WorkspaceManager {
         disabledMonitors.contains(screen.localizedName)
     }
 
-    // screens sorted left-to-right by CG x origin, then top to bottom: a
-    // total order, so the homes are a function of the frames and not of
-    // the order NSScreen.screens happens to list a stacked desk in
+    // screens sorted left-to-right by CG x origin. two screens on one x, a
+    // stacked desk, keep the order NSScreen.screens lists them in, which
+    // puts the primary display first: the homes a stacked desk has today
+    // stay its homes, and a sort on y would have swapped them on upgrade
     private func screensLeftToRight() -> [NSScreen] {
-        displayManager.screens.sorted {
-            ($0.frame.origin.x, $0.frame.origin.y) < ($1.frame.origin.x, $1.frame.origin.y)
-        }
+        displayManager.screens.enumerated().sorted { lhs, rhs in
+            lhs.element.frame.origin.x != rhs.element.frame.origin.x
+                ? lhs.element.frame.origin.x < rhs.element.frame.origin.x
+                : lhs.offset < rhs.offset
+        }.map(\.element)
     }
 
     /// Enabled screens left-to-right. Drives `homeScreenForWorkspace`.

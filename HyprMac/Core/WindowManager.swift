@@ -3262,14 +3262,16 @@ class WindowManager {
             // waits for the span to end and settles again from there
             if self.discovery.isSessionInterrupted {
                 hyprLog(.notice, .lifecycle, "display reconcile deferred: session interrupted")
-                self.suppressions.suppress("workspace-transition", for: 3.0)
+                self.suppressions.suppress("workspace-transition", for: stabilityWindow + 1)
                 self.scheduleDisplayReconcile(stabilityWindow: stabilityWindow)
                 return
             }
             let fingerprint = self.displayFingerprint()
             if fingerprint != fingerprintAtSchedule {
-                // changed without a fresh notification — keep waiting
-                self.suppressions.suppress("workspace-transition", for: 3.0)
+                // changed without a fresh notification — keep waiting, with
+                // the polls held off for the whole beat, not three seconds
+                // of a five-second one
+                self.suppressions.suppress("workspace-transition", for: stabilityWindow + 1)
                 self.scheduleDisplayReconcile(stabilityWindow: stabilityWindow)
                 return
             }

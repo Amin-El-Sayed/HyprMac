@@ -209,8 +209,8 @@ private final class SnapshotScreen: SyntheticScreen {
 private final class DeskScreen: SyntheticScreen {
     let bounds: NSRect
     let name: String?
-    init(x: CGFloat, width: CGFloat, name: String? = nil) {
-        bounds = NSRect(x: x, y: 0, width: width, height: 900)
+    init(x: CGFloat, y: CGFloat = 0, width: CGFloat, name: String? = nil) {
+        bounds = NSRect(x: x, y: y, width: width, height: 900)
         self.name = name
         super.init()
     }
@@ -288,6 +288,20 @@ final class DisplayReturnTests: XCTestCase {
         }
 
         XCTAssertEqual(requests, WorkspaceManager.parkRepairRequests)
+    }
+
+    /// a stacked desk, two screens on one x: the primary display keeps the
+    /// first homes, as it has, whatever its y
+    func testAStackedDeskKeepsThePrimaryDisplaysHomesFirst() {
+        let primary = DeskScreen(x: 0, y: 900, width: 1400)
+        let below = DeskScreen(x: 0, y: 0, width: 1400)
+        let workspaces = WorkspaceManager(displayManager: DisplayManager(screenSource: { [primary, below] }))
+        workspaces.initializeMonitors()
+        XCTAssertTrue(workspaces.homeScreenForWorkspace(1) === primary)
+        XCTAssertTrue(workspaces.homeScreenForWorkspace(2) === below)
+        let swapped = WorkspaceManager(displayManager: DisplayManager(screenSource: { [below, primary] }))
+        swapped.initializeMonitors()
+        XCTAssertTrue(swapped.homeScreenForWorkspace(1) === below, "the list's first is the primary")
     }
 
     /// NSScreen.screens comes back in another order after some wakes, and
